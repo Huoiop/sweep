@@ -1,0 +1,27 @@
+# ---- 本地临时素材，不入库 ----
+
+# 临时脚本（测量 / 生成 / 打包 / 本地服务器）与截图
+/temp/
+# 调试截图
+/debug/
+# 设计素材：pptx 原稿与设计稿图片
+/设计原稿/
+
+# 打包产物，由 temp/build_dist.py 生成
+/dist/
+
+# 字体源文件（三个字重共 23MB）。运行时只用 fonts/*.woff2 子集，TTF 不参与加载
+/fonts/*.ttf
+
+# ---- 系统与编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# 开发产物
+prompt.txt
+README.md
+favicon.ico

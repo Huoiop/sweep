@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>刷了吗 · 大扫除分工抽取</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ============ 1 首页 ============ -->
+    <!-- 圆外面套一层只做平移的壳：横竖两个方向用不同周期漂移，
+         合成一条不重复的缓漂路径；用位移而非旋转，小圆上的阴影才不会跟着转 -->
+    <section class="screen" data-screen="home">
+      <div class="drift drift--lg"><div class="circle circle--lg"></div></div>
+
+      <div class="home-title">刷了吗</div>
+
+      <!-- 徽标里的图标与分工名一起上下流转，内容由 main.js 按 ITEMS 生成 -->
+      <div class="home-badge">
+        <span class="badge-roll badge-roll--icon" data-role="badge-icon"></span>
+        <span class="badge-roll badge-roll--text" data-role="badge-text"></span>
+      </div>
+
+      <div class="drift drift--sm">
+        <div class="circle circle--sm">
+          <!-- 圆里那团模糊 = 被圆盖住的标题虚影（见 styles.css 说明），
+               两级反向漂移把它钉在标题原位上，圆移动时露出不同的部分 -->
+          <div class="ghost-x"><div class="ghost-y" aria-hidden="true">刷了吗</div></div>
+        </div>
+      </div>
+
+      <button class="btn btn--cta" data-action="start">开始抽取</button>
+    </section>
+
+    <!-- ============ 2 选择抽取范围 ============ -->
+    <section class="screen" data-screen="range">
+      <div class="col-left">
+        <span class="icon col-left__icon" data-icon="小组" style="--icon-size:71.2px"></span>
+        <p class="col-left__eyebrow">开始之前</p>
+        <h1 class="col-left__title">请确定抽取范围</h1>
+        <p class="col-left__note">* 开发初期阶段，非最终版本效果</p>
+      </div>
+
+      <div class="col-right">
+        <div class="tabs-frame" data-role="tabs-frame">
+          <div class="tabs-wrap" data-role="tabs-wrap">
+            <nav class="tabs" data-role="group-tabs">
+              <span class="tabs__indicator" data-role="tabs-indicator"></span>
+            </nav>
+          </div>
+          <span class="tabs-fade tabs-fade--l"></span>
+          <span class="tabs-fade tabs-fade--r"></span>
+        </div>
+
+        <div class="chips" data-role="member-chips"></div>
+
+        <div class="range-footer">
+          <span class="range-footer__count">
+            <span class="icon" data-icon="小组" style="--icon-size:28.2px"></span>
+            <span class="range-footer__num" data-role="selected-count">0</span>
+          </span>
+          <button class="btn btn--next" data-action="to-config">下一步</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 3 配置分配条目 ============ -->
+    <section class="screen" data-screen="config">
+      <div class="col-left">
+        <span class="icon col-left__icon" data-icon="配置" style="--icon-size:71.2px"></span>
+        <p class="col-left__eyebrow">最后一步</p>
+        <h1 class="col-left__title">请配置分配条目</h1>
+        <p class="col-left__note">* 开发初期阶段，非最终版本效果</p>
+      </div>
+
+      <div class="col-right">
+        <div class="stat">
+          <span class="icon stat__icon" data-icon="统计" style="--icon-size:28.4px"></span>
+          <span class="stat__text">总计 <b data-role="total">0</b> 人 · 还可分配 <b data-role="left">0</b> 人</span>
+        </div>
+
+        <div class="items" data-role="item-pills"></div>
+
+        <div class="col-right__footer">
+          <button class="btn btn--next" data-action="to-transition">下一步</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4-7 过场 ============ -->
+    <section class="screen screen--dark-ink" data-screen="transition">
+      <div class="transition">
+        <div class="transition__line transition__line--1" data-step="1">:)))</div>
+        <div class="transition__line transition__line--2" data-step="2">好东西</div>
+        <div class="transition__line transition__line--3" data-step="3">就要来力！<span class="transition__tag" data-step="4">(喜</span></div>
+      </div>
+    </section>
+
+    <!-- ============ 8-11 逐项抽取 ============ -->
+    <section class="screen" data-screen="draw">
+      <div class="draw-head">
+        <span class="icon draw-head__icon" data-icon="擦拭" data-role="draw-icon" style="--icon-size:111.5px"></span>
+        <h2 class="draw-head__name" data-role="draw-name">擦拭</h2>
+        <p class="draw-head__progress">抽取进行中 <span data-role="draw-index">1</span>/<span data-role="draw-total">4</span></p>
+      </div>
+
+      <div class="draw-names" data-role="draw-names"></div>
+
+      <button class="btn btn--timer" data-role="draw-timer" data-action="next-item">
+        <span data-role="timer-text">3 秒后继续</span>
+      </button>
+    </section>
+
+    <!-- ============ 12 总结 ============ -->
+    <section class="screen" data-screen="summary">
+      <div class="summary" data-role="summary"></div>
+
+      <div class="summary-footer">
+        <button class="share-btn" type="button" data-action="share" title="保存分工结果图片">
+          <span class="icon summary-footer__icon" data-icon="分享" style="--icon-size:47.1px"></span>
+        </button>
+        <button class="btn btn--next" data-action="restart">再来一次</button>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script src="icons.js"></script>
+<script src="data.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

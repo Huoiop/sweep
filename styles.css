@@ -1,0 +1,656 @@
+/* =========================================================================
+   刷了吗 · 大扫除分工抽取
+   设计基准：2000 × 1125 的 16:9 舞台，所有数值直接取自设计原稿测量值。
+   舞台通过 transform: scale() 等比缩放到窗口，保证任何分辨率下像素级一致。
+   ========================================================================= */
+
+/* 用的是子集化的 WOFF2：每个字重只保留项目真正用到的 452 个字符，
+   7.8 MB → 31 KB。改了 分组名单.txt 或界面文案后跑 python temp/gen_fonts.py 重新生成。
+   子集之外的字（比如自定义项名里敲的生僻字）由 --font 里的系统字体兜底。 */
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('fonts/HarmonyOS_Sans_SC_Regular.subset.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('fonts/HarmonyOS_Sans_SC_Medium.subset.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('fonts/HarmonyOS_Sans_SC_Black.subset.woff2') format('woff2');
+  font-weight: 900; font-style: normal; font-display: block;
+}
+
+/* 第二层：常用字兜底（GB2312 一级字表 3583 字），只做 500 字重。
+   自定义项名只会以 500 出现（配置屏输入框、抽取屏项名、总结页项名都是 500），
+   其余位置用到的字全在第一层里。
+   独立家族名排在字体栈第二位 + unicode-range 限定汉字区：
+   只有当某个汉字确实不在第一层里时，浏览器才会去下载它 —— 用不到就完全不请求。 */
+@font-face {
+  font-family: 'HarmonyOS Sans SC CJK';
+  src: url('fonts/HarmonyOS_Sans_SC_Medium.common.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+  unicode-range: U+4E00-9FFF;
+}
+
+:root {
+  --bg:      #F2F2F2;   /* 页面底色 */
+  --ink:     #2E2F2F;   /* 标签 / 药丸 / 按钮填充 */
+  --icon:    #000000;   /* 线性图标 */
+  --text:    #000000;   /* 正文与标题 */
+  --hint:    #7F7F7F;   /* 注释小字 */
+  --white:   #FFFFFF;
+  --stage-w: 2000;
+  --stage-h: 1125;
+  /* 缺字顺序：项目子集 → 常用字兜底（按需下载）→ 系统黑体 */
+  --font: 'HarmonyOS Sans SC', 'HarmonyOS Sans SC CJK', 'PingFang SC',
+          'HarmonyOS Sans', 'Source Han Sans SC', 'Noto Sans CJK SC',
+          'Microsoft YaHei', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  /* 全站禁止框选：触屏上拖拽时很容易误选到文字，拖出蓝色选区 */
+  -webkit-user-select: none;
+          user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 输入框例外，否则无法编辑/全选 */
+input, textarea {
+  -webkit-user-select: text;
+          user-select: text;
+}
+
+#viewport { position: fixed; inset: 0; overflow: hidden; }
+
+#stage {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 2000px; height: 1125px;
+  transform-origin: 50% 50%;
+  background: var(--bg);
+  will-change: transform;
+}
+
+/* 屏幕切换 ------------------------------------------------------------- */
+.screen {
+  position: absolute; inset: 0;
+  display: none;
+}
+.screen.is-active { display: block; }
+
+/* 图标 ----------------------------------------------------------------- */
+.icon {
+  display: block;
+  width: var(--icon-size, 48px);
+  height: var(--icon-size, 48px);
+  color: var(--icon);
+  flex: none;
+}
+.icon svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+
+/* 通用按钮 ------------------------------------------------------------- */
+.btn {
+  border: 0; outline: 0; cursor: pointer;
+  -webkit-appearance: none; appearance: none;   /* 去掉 UA 自带的按下样式 */
+  background: var(--ink); color: var(--white);
+  font-family: var(--font); font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center;
+  white-space: nowrap;
+  /* 反馈只改背景色（不透明度过渡会让按钮闪，见 .chip 的说明）。
+     #454646 / #5D5E5E 是把原 opacity .88 / .76 折算到浅底上的等效色。 */
+  transition: background-color .15s ease;
+}
+/* 悬停反馈只在真有指针悬停的设备上生效：触摸端点完会残留 hover，同样造成闪动 */
+@media (hover: hover) {
+  .btn:hover { background: #454646; }
+}
+.btn:active { background: #5D5E5E; }
+.btn.is-disabled,
+.btn:disabled {
+  opacity: .28; cursor: not-allowed; background: var(--ink);
+}
+
+/* 下一步 / 再来一次：166 × 61，圆角 30.5 */
+.btn--next {
+  width: 166px; height: 61px; border-radius: 30.5px;
+  font-size: 22.98px; letter-spacing: 0;
+}
+
+/* 1 首页 =============================================================== */
+.circle {
+  position: relative; border-radius: 50%; background: var(--white);
+}
+
+/* 浮动：外壳走横向、圆本身走纵向，两者周期不同 →
+   合成一条缓慢而不重复的漂移路径。用平移不用旋转，小圆的阴影才不会跟着转。 */
+@keyframes drift-x-lg { 0%, 100% { transform: translateX(-19px); } 50% { transform: translateX(19px); } }
+@keyframes drift-y-lg { 0%, 100% { transform: translateY(-15px); } 50% { transform: translateY(15px); } }
+@keyframes drift-x-sm { 0%, 100% { transform: translateX(-15px); } 50% { transform: translateX(15px); } }
+@keyframes drift-y-sm { 0%, 100% { transform: translateY(-12px); } 50% { transform: translateY(12px); } }
+/* 反向漂移：周期与相位必须和上面两条完全一致，才能在圆内把虚影抵消回原位 */
+@keyframes undrift-x-sm { 0%, 100% { transform: translateX(15px); } 50% { transform: translateX(-15px); } }
+@keyframes undrift-y-sm { 0%, 100% { transform: translateY(12px); } 50% { transform: translateY(-12px); } }
+
+.drift { position: absolute; will-change: transform; }
+/* z-index 放在外壳上：transform 会产生层叠上下文，子元素的 z-index 出不来 */
+.drift--lg { left: 403px; top: 193.7px; z-index: 0; animation: drift-x-lg 9s   ease-in-out infinite; }
+.drift--sm { left: 1142px; top: 515px;  z-index: 2; animation: drift-x-sm 7.3s ease-in-out -2.1s infinite; }
+.drift--lg .circle { animation: drift-y-lg 6.7s ease-in-out infinite; }
+.drift--sm .circle { animation: drift-y-sm 5.9s ease-in-out -1.3s infinite; }
+
+/* 大圆压在标题下层 */
+.circle--lg { width: 536px; height: 536px; }
+
+/* 小圆压在标题上层 */
+/* 圆本体纯白；那团模糊不是画在圆上的渐变，而是被圆盖住的标题虚影：
+   圆的 z-index 高于标题，标题右半截被圆挡住，只留下一团柔化的暗影。
+   所以做法是把标题的模糊副本放进圆里，再用反向漂移把它钉回标题原位——
+   圆一移动，露出的就是标题的不同部位，模糊自然跟着变。 */
+.circle--sm {
+  width: 298.5px; height: 298.5px;
+  background: var(--white);
+  overflow: hidden;                 /* 把虚影裁进圆内 */
+}
+
+/* 位置 = 标题在舞台上的位置 (719.94, 459.66) 减去圆盒原点 (1142, 515) */
+.ghost-x {
+  position: absolute; left: -422.06px; top: -55.34px;
+  animation: undrift-x-sm 7.3s ease-in-out -2.1s infinite;
+}
+.ghost-y {
+  font-size: 184px; font-weight: 900; line-height: 1; white-space: nowrap;
+  color: #000;
+  filter: blur(24px);
+  animation: undrift-y-sm 5.9s ease-in-out -1.3s infinite;
+  user-select: none;
+}
+
+/* 尊重系统的「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .drift, .drift .circle, .ghost-x, .ghost-y { animation: none; }
+  .badge-roll__track { animation: none; }
+  .tabs__indicator { animation: none; }
+}
+
+.home-title {
+  position: absolute; left: 719.94px; top: 459.66px; z-index: 1;
+  font-size: 184px; font-weight: 900; line-height: 1;
+  color: var(--text); white-space: nowrap;
+}
+
+.home-badge {
+  position: absolute; left: 734.3px; top: 373.72px; z-index: 3;
+  display: flex; align-items: center; gap: 15.39px;
+}
+.home-badge .icon { color: var(--text); }
+
+/* 徽标轮播：一列排开、窗口只有一格高，靠 translateY 逐格上推。
+   末位再放一份首位内容，循环回 0 时才接得上、不会闪。
+   窗口高度就是文本/图标本身的高度，超出的部分由 overflow 裁掉。 */
+.badge-roll { display: block; overflow: hidden; }
+.badge-roll--icon { --h: 57.1px;  width: 57.1px; height: 57.1px; }
+.badge-roll--text { --h: 37.74px; height: 37.74px; }
+.badge-roll__track { display: block; animation: badge-roll 8s ease-in-out infinite; }
+.badge-roll__slot { display: flex; align-items: center; justify-content: center; }
+.badge-roll--icon .badge-roll__slot { width: 57.1px; height: 57.1px; }
+.badge-roll--text .badge-roll__slot {
+  height: 37.74px; line-height: 37.74px; white-space: nowrap;
+  font-size: 37.74px; font-weight: 500; color: var(--text);
+}
+@keyframes badge-roll {
+  0%, 18.75%  { transform: translateY(0); }
+  25%, 43.75% { transform: translateY(calc(var(--h) * -1)); }
+  50%, 68.75% { transform: translateY(calc(var(--h) * -2)); }
+  75%, 93.75% { transform: translateY(calc(var(--h) * -3)); }
+  100%        { transform: translateY(calc(var(--h) * -4)); }
+}
+
+.btn--cta {
+  position: absolute; left: 884px; top: 869.3px;
+  width: 231.7px; height: 80px; border-radius: 40px;
+  font-size: 24.85px; z-index: 3;
+}
+
+/* 2 / 3 左栏 ========================================================== */
+/* 必须撑满舞台：内部子元素都是绝对定位，若父盒宽为 0，子元素的 shrink-to-fit 宽度会被压成 0 而逐字换行 */
+.col-left  { position: absolute; inset: 0; }
+
+.col-left__icon { position: absolute; left: 263.2px; top: 431.8px; }
+
+.col-left__eyebrow {
+  position: absolute; left: 264.5px; top: 544.4px;
+  margin: 0; font-size: 33.34px; font-weight: 500; line-height: 1;
+}
+
+.col-left__title {
+  position: absolute; left: 261.4px; top: 596.7px;
+  margin: 0; font-size: 66.76px; font-weight: 900; line-height: 1;
+  white-space: nowrap;
+}
+
+.col-left__note {
+  position: absolute; left: 264.5px; top: 714.7px;
+  margin: 0; font-size: 22px; font-weight: 400; line-height: 1;
+  color: var(--hint); white-space: nowrap;
+}
+
+/* 2 / 3 右栏 ========================================================== */
+.col-right { position: absolute; inset: 0; }
+
+/* 分组标签：可视区宽度按原稿量得（右边缘 x=1556），多出来的分组靠横向滑动查看。
+   右端用一层背景色渐隐图层覆盖，而不是 mask —— 曲线是非线性的，
+   图层可以直接写多段停靠点，精确还原原稿「x=1536 起渐隐、到 1556 全透明」的实测剖面。 */
+.tabs-frame {
+  position: absolute; left: 1074.84px; top: 547.83px;
+  width: 481.16px; height: 46px;
+}
+.tabs-wrap {
+  width: 100%; height: 100%;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  cursor: grab;
+  user-select: none;
+}
+.tabs-wrap::-webkit-scrollbar { display: none; }
+.tabs-wrap.is-dragging { cursor: grabbing; }
+
+/* 不加 transition：渐隐必须跟着滚动状态立刻开合。
+   如果让它淡入淡出，切换的一瞬间右端会露出没被盖住的字。 */
+.tabs-fade {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  pointer-events: none;
+}
+/* 覆在 #F2F2F2 底色上，渐隐到透明即可 */
+.tabs-fade--r {
+  right: -1px;                 /* 多探出 1px，盖住滚动容器取整后可能露出的亚像素缝 */
+  background: linear-gradient(to right,
+    rgba(242,242,242,0)    0%,
+    rgba(242,242,242,.13) 10%,
+    rgba(242,242,242,.27) 20%,
+    rgba(242,242,242,.47) 30%,
+    rgba(242,242,242,.65) 40%,
+    rgba(242,242,242,.78) 50%,
+    rgba(242,242,242,.88) 60%,
+    rgba(242,242,242,.95) 70%,
+    rgba(242,242,242,.98) 80%,
+    #F2F2F2              100%);
+}
+.tabs-fade--l {
+  left: -1px;
+  background: linear-gradient(to left,
+    rgba(242,242,242,0)    0%,
+    rgba(242,242,242,.30) 50%,
+    #F2F2F2              100%);
+}
+.tabs-frame.can-right .tabs-fade--r { width: 21px; }
+.tabs-frame.can-left  .tabs-fade--l { width: 17px; }
+
+/* position: relative 让指示条与各标签处于同一坐标系 */
+.tabs { position: relative; display: flex; gap: 44.27px; }
+.tabs__item {
+  -webkit-appearance: none; appearance: none;
+  flex: none;                              /* 关键：不能被压缩，否则没有横向滚动 */
+  font-size: 29.21px; font-weight: 400; line-height: 1;
+  color: var(--text); white-space: nowrap;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font-family: var(--font);
+}
+/* 选中态：文字不变，仅下方一道短圆角横条。
+   指示条是独立的一个元素，在标签之间平滑滑动（不是每个标签各画一条再显隐），
+   滑动过程中先收窄再展开，参考 Windows 11 的指示条手感。
+
+   位置和宽度由同一条 animation 驱动：transform 只在 0%/100% 出现，
+   于是它在整段时长里按 0% 的缓动曲线一次走完；width 多一个 46% 的关键帧做「收窄」。
+   两者共用一个时间轴，不会像之前那样互相错位——之前的生硬就出在这里。 */
+.tabs__indicator {
+  --ind-x0: 27px;                 /* 起点，JS 每次切换前写入当前实际位置 */
+  --ind-x1: 27px;                 /* 终点 */
+  position: absolute; left: 0; top: 39.87px;
+  width: 34px; height: 4.7px; border-radius: 2.35px;
+  background: var(--text);
+  transform: translateX(var(--ind-x1));
+  animation: indicator-slide .44s both;
+  will-change: transform, width;
+}
+@keyframes indicator-slide {
+  0%   { transform: translateX(var(--ind-x0)); width: 34px;
+         animation-timing-function: cubic-bezier(.45, .05, .25, 1); }
+  46%  { width: 16px;
+         animation-timing-function: cubic-bezier(.35, 0, .3, 1); }
+  100% { transform: translateX(var(--ind-x1)); width: 34px; }
+}
+
+/* 成员胶囊 */
+.chips {
+  position: absolute; left: 1069px; top: 632.5px; width: 760px;
+  display: flex; flex-wrap: wrap; gap: 12px 16px;
+}
+/* 选中/未选中做成两层叠放：底层永远是「白底黑字」，
+   深色态是盖在上面的一层「深底白字」，切换时只动它的 opacity。
+   opacity 由合成器直接驱动、主线程不参与绘制——
+   不像 background-color 过渡那样每帧重绘、可能闪回旧栅格。 */
+.chip {
+  position: relative;
+  -webkit-appearance: none; appearance: none;
+  height: 61px; padding: 0 30.5px; border-radius: 30.5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--white); color: var(--text);
+  font-family: var(--font); font-size: 22.9px; font-weight: 500; line-height: 1;
+  border: 0; cursor: pointer; white-space: nowrap;
+}
+.chip__ink {
+  position: absolute; inset: 0; border-radius: inherit;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ink); color: var(--white);
+  opacity: 1;
+  transition: opacity .15s ease;
+}
+/* 未选中：深色层淡出，露出白底黑字 */
+.chip.is-off .chip__ink { opacity: 0; }
+
+/* 底部：人数 + 下一步 */
+.range-footer {
+  position: absolute; right: 95px; top: 990px;
+  display: flex; align-items: center; gap: 49.7px;
+}
+.range-footer__count {
+  display: flex; align-items: center; gap: 11.2px; margin-top: 6px;
+}
+.range-footer__count .icon { color: var(--text); }
+.range-footer__num {
+  font-size: 25.5px; font-weight: 500; line-height: 1; color: var(--ink);
+}
+
+.col-right__footer {
+  position: absolute; right: 95px; top: 990px;
+  display: flex; align-items: center;
+}
+
+/* 3 统计行 */
+.stat {
+  position: absolute; left: 1096.6px; top: 544.6px;
+  display: flex; align-items: center; gap: 12.95px;
+}
+.stat__icon { color: var(--text); }
+.stat__text { font-size: 25.03px; font-weight: 500; line-height: 1; }
+.stat__text b { font-weight: 500; }
+
+/* 3 分工项药丸 */
+/* 原稿中本屏药丸块的左起点比上一屏的成员胶囊块右移 24px，此处照原样保留 */
+.items {
+  position: absolute; left: 1093.3px; top: 613.3px; width: 760px;
+  display: flex; flex-wrap: wrap; gap: 15px 17.9px;
+}
+.pill {
+  width: 230.5px; height: 67px; border-radius: 33.5px;
+  background: var(--ink); color: var(--white);
+  display: flex; align-items: center;
+  padding-left: 24.9px;
+  font-family: var(--font);
+}
+.pill__label {
+  font-size: 22.8px; font-weight: 500; line-height: 1;
+  white-space: nowrap;
+}
+/* 「自定义」的项名可编辑，占满图标左侧的整块标签区 */
+.pill__label--input {
+  width: 92px; padding: 0; margin: 0; border: 0; outline: 0;
+  background: transparent; color: var(--white);
+  font-family: var(--font); font-size: 22.8px; font-weight: 500; line-height: 1;
+}
+.pill__label--input::placeholder { color: rgba(255, 255, 255, .42); }
+.pill__label--input::selection { background: rgba(255, 255, 255, .3); }
+/* 数字胶囊：贴右侧内缩 9.5px。宽度沿用原稿的 104px，
+   里面放输入框后图标会比原稿左移约 9px —— 原稿的胶囊放不下可输入的控件，
+   这里优先保证可输入，同时让数字仍落在原稿位置附近。 */
+.pill__count {
+  margin-left: auto; margin-right: 9.5px;
+  width: 104px; height: 48px; border-radius: 24px;
+  background: var(--bg); color: var(--text);
+  display: flex; align-items: center; justify-content: center; gap: 3.6px;
+}
+.pill__count .icon { color: var(--text); }
+.pill__input {
+  width: 36px; padding: 0; margin: 0; border: 0; outline: 0;
+  background: transparent; color: var(--text);
+  font-family: var(--font); font-size: 22.9px; font-weight: 500; line-height: 1;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.pill__input::-webkit-outer-spin-button,
+.pill__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pill__input::selection { background: rgba(46,47,47,.18); }
+/* 自定义项不可编辑，与输入框同宽以保证视觉对齐 */
+.pill__input--ro { display: block; }
+
+/* 4-7 过场 ============================================================ */
+.transition {
+  position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center;
+}
+/* 未出现的行不参与布局，整块才能随行数增加而重新垂直居中（与原稿一致） */
+.transition__line { display: none; line-height: 1; white-space: nowrap; }
+.transition__line--1 { font-size: 40.2px;  font-weight: 400; }
+.transition__line--2 { font-size: 38px;    font-weight: 400; margin-top: 41.3px; }
+/* 原稿中第三行整体偏右约 62px（并非居中），此处照原样保留 */
+.transition__line--3 { font-size: 112.8px; font-weight: 900; margin-top: 17.3px;
+                       position: relative; left: 62px; }
+.transition__tag {
+  font-size: 31.1px; font-weight: 400; margin-left: -48px;
+}
+
+@keyframes transition-in { from { opacity: 0; } to { opacity: 1; } }
+.is-on { display: block; animation: transition-in .26s ease both; }
+
+/* 按步骤逐行显现 */
+[data-screen="transition"][data-step="1"] .transition__line--1,
+[data-screen="transition"][data-step="2"] .transition__line--1,
+[data-screen="transition"][data-step="3"] .transition__line--1,
+[data-screen="transition"][data-step="4"] .transition__line--1,
+[data-screen="transition"][data-step="2"] .transition__line--2,
+[data-screen="transition"][data-step="3"] .transition__line--2,
+[data-screen="transition"][data-step="4"] .transition__line--2,
+[data-screen="transition"][data-step="3"] .transition__line--3,
+[data-screen="transition"][data-step="4"] .transition__line--3 { display: block; animation: transition-in .26s ease both; }
+
+/* 「(喜」始终占着位置，只切换不透明度：
+   若用 display 开关，它出现/消失会改变整行宽度，居中的「就要来力！」就会被顶得左右移动
+   （实测位移 3px）。原稿这两帧里主文本是完全不动的。 */
+.transition__tag { opacity: 0; }
+[data-screen="transition"][data-step="4"] .transition__tag {
+  opacity: 1; animation: transition-in .26s ease both;
+}
+
+/* 8-11 逐项抽取 ======================================================= */
+.draw-head__icon { position: absolute; left: 179px; top: 128px; }
+
+.draw-head__name {
+  position: absolute; left: 182.9px; top: 276.3px;
+  margin: 0; font-size: 50.13px; font-weight: 500; line-height: 1;
+  white-space: nowrap;
+}
+
+.draw-head__progress {
+  position: absolute; left: 183.98px; top: 339.24px;
+  margin: 0; font-size: 29.95px; font-weight: 400; line-height: 1;
+  white-space: nowrap;
+}
+
+/* 抽到的人名：整体水平居中，超过容器宽度就换行并保持居中。
+   原稿四行反推出的名字间距不一致（94 / 106 / 123 / 123），取最小最大误差值 108.5。
+   max-width 1300 保证「一行最多两个人名」，与原稿换行一致。
+
+   每个人名是一个纵向滚轮（和首页徽标同一套做法）：宽度取最终人名的推进宽度，
+   所以落定后的版式与原来的纯文本完全一致；滚动时更宽的名字居中溢出、被裁掉。 */
+/* --dfs 是抽取名的整体缩放：人名排到第 3 行就会超出 1125 的舞台高度
+   （每行 238.2px，从这个 top 起最多只放得下两行），所以超过两行时由 JS 调小。
+   容器宽度 max-width 不跟着缩 —— 字变小、每行就能站下更多人，行数自然回落。 */
+.draw-names {
+  --dfs: 1;
+  /* left 由 JS 按「设计稿最左人名框的左缘」写入；容器宽度恒为 1300，
+     内容一律左对齐 —— 谁预留得宽就往后挤，不会把左边的名字顶偏。 */
+  position: absolute; top: 485.22px; width: 1300px;
+  display: flex; flex-wrap: wrap; justify-content: flex-start;
+  column-gap: calc(108.5px * var(--dfs));
+  row-gap: calc(38.2px * var(--dfs));
+}
+/* 一个名字一个槽位：槽宽按最终人名定，落定后版式与原稿一致。
+   槽内每个字各是一个纵向滚轮，各字起步时间依次延后 —— 错开时连成一条斜线，
+   落定时对齐成正字。 */
+/* 槽宽按「结果长度」与「候选里最长的名字」的较大者定，进入该项时一次算好、全程不变。
+   名字左对齐（左缘位置恒定），多余的字符位留在右边且为空 —— 既不位移也不会重叠。 */
+.draw-slot {
+  display: flex; flex: none;
+  justify-content: flex-start;
+  height: calc(200px * var(--dfs));
+  overflow: hidden;
+}
+/* 一个字位一格滚轮：宽度 = 一个汉字的推进宽度（等于 font-size） */
+.draw-col {
+  display: block; flex: none;
+  width: calc(183.26px * var(--dfs));
+  height: calc(200px * var(--dfs)); overflow: hidden;
+}
+/* 滚轮的单格高度（300）刻意大于窗口高度（200）：
+   字形墨迹约 171px，若单格也只有 200px，相邻两格只隔 29px，
+   窗口一跨格就会被上下两个半字填满、糊成一团（看起来像黑晕/半透明遮罩）。
+   拉大到 300 后相邻名字之间留出 ~129px 空白，跨格时清清楚楚分开。
+   窗口本身仍是 200px，所以落定后的版式不受影响。
+
+   位移用 transform：动画期间由合成器在 GPU 上完成，不触发逐帧重绘，最省。 */
+/* display: block 不能少：这是个 <span>，默认是行内元素，
+   行内盒装块级子元素时，对行内盒做 translateY 并不会带着里面的字符一起动。 */
+.draw-col__track { display: block; transform: translateY(0); }
+.draw-ch {
+  display: block;
+  height: calc(300px * var(--dfs));
+  line-height: calc(300px * var(--dfs));
+  font-size: calc(183.26px * var(--dfs));
+  font-weight: 900;
+  text-align: center; white-space: nowrap;
+  user-select: none;
+}
+
+/* 右下倒计时按钮 */
+.btn--timer {
+  position: absolute; left: 1717.3px; top: 990.7px;
+  width: 187.4px; height: 60.6px; border-radius: 30.3px;
+  font-size: 22.75px;
+}
+.btn--timer.is-hidden { visibility: hidden; }
+
+/* 12 总结 ============================================================= */
+.summary-left {
+  position: absolute; left: 238px; top: 307.9px;
+  display: flex; flex-direction: column; gap: 54.73px;
+}
+.summary-row {
+  height: 137.52px;
+  display: flex; align-items: center; gap: 0;
+}
+.summary-item {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 20.67px; width: 152.5px; flex: none;   /* 列宽即「图标列」到「名字列」的间距 */
+}
+.summary-item__label {
+  font-size: 50.05px; font-weight: 500; line-height: 1;
+  white-space: nowrap; color: var(--text);
+}
+/* 人名区只显示一行；人多时在本项内部滚动，不撑破版式。
+   盒子比行高多出来的部分落进行间 54.73px 的空隙里，碰不到下一行；
+   必须 flex-start，否则加高后垂直居中会把墨迹顶上去。
+
+   padding-bottom 22.3 是必要的：这套字体的内容框（ascent+descent）是 182px，
+   而行高只有 137.52px，多出的那截下沿会被算进可滚动区域，
+   导致单行的人名区也能往下滚 22px。补一段等量内边距把它吸收掉。 */
+/* 外层只负责定位与定宽，滚动发生在内层，滚动条才能叠在内层右侧而不跟着滚 */
+.summary-names-wrap {
+  position: relative; align-self: flex-start;
+  /* 宽度必须限死：不限的话人一多就横向铺开、直接盖到右栏上去（不会换行）。
+     560 = 到右栏左边缘（x≈958）之间的可用宽度，刚好放得下一个 4 字名。 */
+  max-width: 560px;
+}
+.summary-names {
+  display: flex; flex-wrap: wrap; column-gap: 36px;
+  font-size: 137.52px; font-weight: 900; line-height: 137.52px;
+  white-space: nowrap;
+  max-height: 172px; overflow-y: auto;
+  padding-bottom: 22.3px;
+}
+
+.summary-right-item {
+  position: absolute; left: 967.4px; top: 314.28px;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 20.22px; width: 132px;
+}
+/* 右栏是人数最多的那一项，原稿给的是 2 行。再多就在本项内部滚动：
+   页脚顶边在 990，可容到 2.77 行，这里就按 2 行 (=373.2) 定高，与原稿一致。 */
+.summary-right-names-wrap {
+  position: absolute; left: 958.2px; top: 473.95px; width: 1160px;
+}
+.summary-right-names {
+  display: flex; flex-wrap: wrap; column-gap: 36px; row-gap: 0;
+  font-size: 137.52px; font-weight: 900; line-height: 186.6px;
+  white-space: nowrap;
+  max-height: 379.2px; overflow-y: auto;
+}
+
+/* ---- 自定义滚动条 ----
+   不用原生滚动条：Win11 开启「自动隐藏滚动条」后它变成悬浮式——不占位、默认不可见、
+   也拖不动，而且此时 ::-webkit-scrollbar 会被忽略。自己画一条，各环境下表现一致。 */
+.summary-names, .summary-right-names {
+  scrollbar-width: none;          /* 新版 Chrome / Firefox */
+  -ms-overflow-style: none;
+  touch-action: pan-y;            /* 明确允许纵向触摸滑动 */
+  cursor: grab;
+}
+.summary-names::-webkit-scrollbar,
+.summary-right-names::-webkit-scrollbar { display: none; }   /* 旧版 Chrome / Safari */
+.summary-names.is-dragging, .summary-right-names.is-dragging { cursor: grabbing; }
+
+/* 细圆头深灰条，与整体的克制风格一致（和选中指示条同一套语言） */
+.scrollbar {
+  position: absolute; left: 0; top: 0; width: 6px;   /* left 由 JS 按内容右缘设定 */
+  display: none;
+}
+.scrollbar.is-on { display: block; }
+.scrollbar__thumb {
+  display: block; width: 100%; border-radius: 3px;
+  background: rgba(46, 47, 47, .22);
+  transition: background .16s ease;
+  cursor: grab;
+  will-change: transform;
+}
+.scrollbar:hover .scrollbar__thumb { background: rgba(46, 47, 47, .42); }
+.scrollbar.is-dragging .scrollbar__thumb { background: rgba(46, 47, 47, .62); cursor: grabbing; }
+
+.summary-footer {
+  position: absolute; right: 95px; top: 990.7px;
+  display: flex; align-items: center; gap: 53.77px;
+}
+.summary-footer__icon { color: var(--text); }
+/* 分享 = 把总结页画成图片存到本地。
+   同样避开 opacity 过渡，改为直接换图标颜色（理由见 .btn）。 */
+.share-btn {
+  border: 0; padding: 0; background: none; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+@media (hover: hover) {
+  .share-btn:hover .icon { color: rgba(0, 0, 0, .62); }
+}
+.share-btn:active .icon { color: rgba(0, 0, 0, .45); }
+.share-btn[disabled] { opacity: .35; cursor: progress; }
